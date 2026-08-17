@@ -5,24 +5,26 @@ import Link from 'next/link'
 import type { ExtractedMarker, MarkerRecommendation } from '@/lib/types'
 import { computeRangeViz } from '@/lib/rangeViz'
 
-// A simple horizontal range bar — the reference range as a shaded zone,
-// the patient's value as a dot along it. No charting library: just two
-// absolutely-positioned divs over a track. Renders nothing if the result
-// or range can't be read as plain numbers (text results, missing range,
-// a garbled OCR read), rather than guessing at a misleading bar.
+// A simple horizontal range bar — the whole track is color-zoned (red
+// outside the reference range, green inside it) so normal-vs-abnormal
+// reads at a glance without even looking at the dot, plus a bold,
+// high-contrast dot for the patient's actual value. No charting library:
+// just absolutely-positioned divs over a track. Renders nothing if the
+// result or range can't be read as plain numbers (text results, missing
+// range, a garbled OCR read), rather than guessing at a misleading bar.
 function RangeBar({ marker }: { marker: ExtractedMarker }) {
   const viz = computeRangeViz(marker.result, marker.ref_range)
   if (!viz) return null
   return (
     <div className="w-36">
-      <div className="relative h-2 rounded-full bg-border-light">
+      <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: '#FCA5A5' }}>
         <div
-          className="absolute inset-y-0 rounded-full bg-secondary-light"
-          style={{ left: `${viz.lowPct}%`, width: `${Math.max(0, viz.highPct - viz.lowPct)}%` }}
+          className="absolute inset-y-0"
+          style={{ left: `${viz.lowPct}%`, width: `${Math.max(0, viz.highPct - viz.lowPct)}%`, background: '#86EFAC' }}
         />
         <div
-          className={`absolute top-1/2 w-2.5 h-2.5 rounded-full border-2 border-card -translate-y-1/2 -translate-x-1/2 ${viz.inRange ? 'bg-success' : 'bg-danger'}`}
-          style={{ left: `${viz.valuePct}%` }}
+          className="absolute top-1/2 w-3.5 h-3.5 rounded-full border-2 border-white shadow -translate-y-1/2 -translate-x-1/2"
+          style={{ left: `${viz.valuePct}%`, background: viz.inRange ? '#15803D' : '#B91C1C' }}
         />
       </div>
       <div className="flex justify-between text-[10px] text-foreground-muted mt-1 leading-none">
