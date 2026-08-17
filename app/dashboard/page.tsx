@@ -138,13 +138,23 @@ export default function DashboardPage() {
             {reports.map((r) => {
               const abnormalCount = (r.markers ?? []).filter((m) => m.abnormal).length
               return (
-                <Link
+                <div
                   key={r.id}
-                  href={`/report/${r.id}`}
-                  className="bg-card border border-border rounded-xl px-5 py-4 flex items-center justify-between hover:border-primary transition"
+                  onClick={() => router.push(`/report/${r.id}`)}
+                  className="bg-card border border-border rounded-xl px-5 py-4 flex items-center justify-between hover:border-primary transition cursor-pointer"
                 >
                   <div>
-                    <div className="text-sm font-medium">{patients[r.patient_id ?? '']?.name ?? 'Unknown patient'}</div>
+                    {r.patient_id ? (
+                      <Link
+                        href={`/patient/${r.patient_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-sm font-medium hover:underline hover:text-primary"
+                      >
+                        {patients[r.patient_id]?.name ?? 'Unknown patient'}
+                      </Link>
+                    ) : (
+                      <div className="text-sm font-medium">Unknown patient</div>
+                    )}
                     <div className="text-xs text-foreground-muted mt-0.5">
                       {r.pdf_filename} · {new Date(r.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </div>
@@ -158,7 +168,7 @@ export default function DashboardPage() {
                       All normal
                     </span>
                   )}
-                </Link>
+                </div>
               )
             })}
           </div>

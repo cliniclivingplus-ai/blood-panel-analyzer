@@ -14,10 +14,18 @@ export type RangeViz = {
   inRange: boolean
 }
 
+// Pulls the first plain number out of a printed result — shared by the
+// single-report range bar here and the cross-report trend builder in
+// lib/patientTrends.ts, so both read "8.10 L" the same way instead of two
+// near-identical regexes slowly drifting apart.
+export function parseNumericResult(result: string): number | null {
+  const match = result.match(/\d+(?:\.\d+)?/)
+  return match ? parseFloat(match[0]) : null
+}
+
 export function computeRangeViz(result: string, refRange: string): RangeViz | null {
-  const valueMatch = result.match(/\d+(?:\.\d+)?/)
-  if (!valueMatch) return null
-  const value = parseFloat(valueMatch[0])
+  const value = parseNumericResult(result)
+  if (value === null) return null
 
   const range = refRange.trim()
   let min: number
