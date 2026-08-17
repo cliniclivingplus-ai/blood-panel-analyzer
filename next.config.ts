@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
   // Marking it external makes Vercel trace and include the real
   // node_modules package instead of trying to bundle it.
   serverExternalPackages: ['tesseract.js'],
+  // Even externalized, the worker script's own `require('..')` back into
+  // the package root isn't picked up by static tracing — force-include
+  // the whole package trees (tesseract.js's worker script + the
+  // WASM/core engine it loads) so the worker thread can actually resolve
+  // its own dependencies at runtime.
+  outputFileTracingIncludes: {
+    '/api/parse-report': ['./node_modules/tesseract.js/**/*', './node_modules/tesseract.js-core/**/*'],
+  },
 };
 
 export default nextConfig;
