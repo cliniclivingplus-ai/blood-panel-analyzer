@@ -19,12 +19,42 @@ export type MarkerGuidanceRow = {
 // direction isn't checked here (the caller already knows whether the
 // marker came back abnormal; direction in the table is metadata for a
 // human reading the seed data, not a second gate).
+//
+// Two-pass strategy:
+// 1. Real printed test names routinely append the abbreviation in
+//    parentheses to the full name — "Hemoglobin (Hb)", "Hemoglobin A2
+//    (HbA2)", "Mean Corpuscular Volume (MCV)". Try an EXACT match against
+//    just that parenthetical first. This matters because a plain
+//    substring pass alone would wrongly match "Hemoglobin A2 (HbA2)"
+//    against the generic "Hemoglobin" row (its own name IS a substring)
+//    before ever reaching the more specific "HbA2" row — a clinically
+//    wrong match, since low HbA2 and low Hemoglobin are different
+//    findings with different guidance.
+// 2. Only if no exact parenthetical match exists, fall back to substring
+//    containment against the full test name (handles cases with no
+//    parenthetical, e.g. OCR/text extraction fusing a panel header onto
+//    the row name — "Zinc , SERUM Zinc, Serum").
 export function findGuidanceMatch(testName: string, rows: MarkerGuidanceRow[]): MarkerGuidanceRow | null {
   const target = normalizeMarkerName(testName)
   if (!target) return null
+
+  const parenMatch = testName.match(/\(([^)]+)\)/)
+  if (parenMatch) {
+    const abbrev = normalizeMarkerName(parenMatch[1])
+    if (abbrev) {
+      for (const row of rows) {
+        const candidates = [row.marker_name, ...row.synonyms]
+        if (candidates.some((c) => normalizeMarkerName(c) === abbrev)) return row
+      }
+    }
+  }
+
   for (const row of rows) {
     const candidates = [row.marker_name, ...row.synonyms]
-    if (candidates.some((c) => normalizeMarkerName(c) === target)) return row
+    if (candidates.some((c) => {
+      const norm = normalizeMarkerName(c)
+      return norm.length >= 2 && (target.includes(norm) || norm.includes(target))
+    })) return row
   }
   return null
 }
