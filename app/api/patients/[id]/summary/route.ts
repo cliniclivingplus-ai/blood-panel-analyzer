@@ -61,20 +61,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const completion = await groq.chat.completions.create({
       model: 'openai/gpt-oss-20b',
-      max_tokens: 300,
+      max_tokens: 700,
       temperature: 0.25,
       reasoning_effort: 'low',
       messages: [
         {
           role: 'system',
           content: [
-            'You write a short plain-language progress summary for a coach reviewing a patient\'s blood test history across multiple reports.',
+            'You write a progress summary for a coach comparing a patient\'s blood test results across multiple reports over time.',
+            'For EACH marker in the data given, write one bullet point in this exact structure:',
+            '- Marker name, then every reading in date order as "value on date", then say whether it increased, decreased, or stayed the same from the previous reading, then state whether the latest value is within or outside the reference range',
+            'Example: "Hemoglobin: 8.10 on 12 Jul, 9.60 on 20 Jul. Increased by 1.5, still below the 12-15 reference range."',
             'RULES:',
-            '- Only describe trends that are actually present in the data given — never claim a marker improved, worsened, or stayed stable unless the numbers given show that',
-            '- Reference the real values and dates given',
-            '- Group related findings together in plain language rather than listing every marker mechanically',
+            '- Only describe a change that is actually present in the numbers given — never claim a marker improved, worsened, or stayed stable unless the numbers given show that',
+            '- Use the real values, units, dates, and reference ranges given, never invented ones',
+            '- One bullet per marker, in the order given',
+            '- After the bullets, add one closing sentence giving the overall picture across all markers together',
             '- State things plainly and confidently where the data supports it; do not hedge with "may/might/could/possibly"',
-            '- 3-5 sentences, or short bullet points if that reads more clearly for several markers',
             '- Never use an em dash (—); use a comma, period, or "and" instead',
           ].join('\n'),
         },
