@@ -1,14 +1,17 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { useEffect, useState, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getUser } from '@/lib/auth'
+import { extractFromFile, type ExtractProgress } from '@/lib/extractReport'
 import type { ExtractedMarker } from '@/lib/types'
 import type { MarkerTrend } from '@/lib/patientTrends'
 import { computeTrendViz, TREND_VIEWBOX } from '@/lib/trendViz'
 
-type Patient = { id: string; name: string; age_sex: string | null; notes: string | null }
+const MAX_FILES = 5
+
+type Patient = { id: string; name: string; clinic_id: string; age_sex: string | null; notes: string | null }
 type ReportRow = { id: string; pdf_filename: string | null; markers: ExtractedMarker[] | null; created_at: string }
 
 function fmtDate(d: string) {
@@ -44,6 +47,7 @@ function Sparkline({ trend }: { trend: MarkerTrend }) {
 export default function PatientPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [reports, setReports] = useState<ReportRow[]>([])
@@ -52,6 +56,10 @@ export default function PatientPage({ params }: { params: Promise<{ id: string }
   const [loadingSummary, setLoadingSummary] = useState(false)
   const [error, setError] = useState('')
 
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+  const [uploadError, setUploadError] = useState('')
+
   useEffect(() => {
     getUser().then((u) => {
       if (!u) { router.replace('/login'); return }
@@ -59,21 +67,60 @@ export default function PatientPage({ params }: { params: Promise<{ id: string }
     })
   }, [router])
 
-  useEffect(() => {
-    if (checkingAuth) return
-    let alive = true
-    fetch(`/api/patients/${id}`)
+  function loadPatient() {
+    return fetch(`/api/patients/${id}`)
       .then((r) => r.json())
       .then((j) => {
-        if (!alive) return
         if (j.error) { setError(j.error); return }
         setPatient(j.patient)
         setReports(j.reports)
         setTrends(j.trends)
         if (j.patient.progress_summary) setSummary(j.patient.progress_summary)
       })
-    return () => { alive = false }
+  }
+
+  useEffect(() => {
+    if (checkingAuth) return
+    loadPatient()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, checkingAuth])
+
+  async function handleFiles(files: FileList) {
+    const list = Array.from(files).slice(0, MAX_FILES)
+    if (list.length === 0) return
+    setUploading(true)
+    setUploadError('')
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]
+        const label = `File ${i + 1} of ${list.length}`
+        setUploadProgress(`${label}: reading ${file.name}…`)
+        const onProgress = (p: ExtractProgress) => {
+          if (p.stage === 'ocr') setUploadProgress(`${label}: OCR page ${p.page} of ${p.totalPages}…`)
+        }
+        const extracted = await extractFromFile(file, onProgress)
+
+        const form = new FormData()
+        form.append('patient_id', id)
+        form.append('text', extracted.text)
+        form.append('file', file)
+
+        setUploadProgress(`${label}: extracting markers…`)
+        const res = await fetch('/api/parse-report', { method: 'POST', body: form })
+        const j = await res.json()
+        if (!res.ok) { setUploadError(`${file.name}: ${j.error || 'Could not analyze this report.'}`); continue }
+      }
+      await loadPatient()
+      // A fresh upload can change the trend picture entirely — force a
+      // regenerated summary rather than showing one written before this
+      // upload existed.
+      loadSummary(true)
+    } finally {
+      setUploading(false)
+      setUploadProgress('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   function loadSummary(regenerate: boolean) {
     setLoadingSummary(true)
@@ -110,9 +157,35 @@ export default function PatientPage({ params }: { params: Promise<{ id: string }
       <main className="max-w-4xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-light mb-1">{patient.name}</h1>
         <p className="text-sm text-foreground-muted mb-8">
-          {reports.length} report{reports.length === 1 ? '' : 's'}
+          Clinic ID {patient.clinic_id} · {reports.length} report{reports.length === 1 ? '' : 's'}
           {reports.length > 0 && <> · {fmtDate(reports[reports.length - 1].created_at)} to {fmtDate(reports[0].created_at)}</>}
         </p>
+
+        <section className="mb-10">
+          <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-3">Upload reports</h2>
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="px-5 py-2.5 bg-primary hover:bg-primary-hover disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium rounded-lg text-sm transition-all"
+            >
+              {uploading ? 'Analyzing…' : 'Choose reports'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="application/pdf,image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => { if (e.target.files) handleFiles(e.target.files) }}
+            />
+            {uploading && uploadProgress && <p className="text-xs text-foreground-secondary mt-3">{uploadProgress}</p>}
+            {uploadError && <p className="text-xs text-danger mt-3 whitespace-pre-wrap">{uploadError}</p>}
+            <p className="text-xs text-foreground-muted mt-3">
+              Up to {MAX_FILES} reports at once, any lab, any layout — PDF or a photo/screenshot, up to 15MB each. Scanned PDFs are OCR&apos;d automatically in your browser, so a batch of long reports can take a few minutes — keep this tab open while it runs.
+            </p>
+          </div>
+        </section>
 
         <section className="mb-10">
           <div className="flex items-center justify-between mb-3">

@@ -16,12 +16,12 @@ import { extractMarkers } from '@/lib/extractMarkers'
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData()
-    const patientName = form.get('patient_name')
+    const patientId = form.get('patient_id')
     const text = form.get('text')
     const file = form.get('file')
 
-    if (typeof patientName !== 'string' || !patientName.trim()) {
-      return NextResponse.json({ error: 'Patient name is required' }, { status: 400 })
+    if (typeof patientId !== 'string' || !patientId.trim()) {
+      return NextResponse.json({ error: 'patient_id is required' }, { status: 400 })
     }
     if (typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ error: 'No text extracted from this report' }, { status: 400 })
@@ -33,24 +33,12 @@ export async function POST(req: NextRequest) {
 
     const admin = createSupabaseAdmin()
 
-    // Find-or-create patient by name — same simplicity as MicrobiomeRX's
-    // own patients table, which also has no email/phone/clinic id to
-    // dedupe on more precisely.
-    const { data: existing } = await admin
-      .from('patients')
-      .select('id')
-      .ilike('name', patientName.trim())
-      .maybeSingle()
-    let patientId = existing?.id as string | undefined
-    if (!patientId) {
-      const { data: created, error: createError } = await admin
-        .from('patients')
-        .insert({ name: patientName.trim() })
-        .select('id')
-        .single()
-      if (createError) return NextResponse.json({ error: createError.message }, { status: 500 })
-      patientId = created.id
-    }
+    // Every upload must target an explicit, already-created patient
+    // account (Clinic ID is what makes that account unique) — never a
+    // typed/matched name, which previously risked two same-named patients
+    // getting their reports mixed together.
+    const { data: patient } = await admin.from('patients').select('id').eq('id', patientId).maybeSingle()
+    if (!patient) return NextResponse.json({ error: 'Patient not found' }, { status: 404 })
 
     // Store the original file (best-effort — a storage failure shouldn't
     // block the analysis itself).

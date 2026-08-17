@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { signOut, getUser } from '@/lib/auth'
-import { extractFromFile, type ExtractProgress } from '@/lib/extractReport'
 
 type ReportRow = {
   id: string
@@ -14,19 +13,21 @@ type ReportRow = {
   created_at: string
   markers: { test_name: string; abnormal: boolean }[] | null
 }
-type PatientRow = { id: string; name: string }
+type PatientRow = { id: string; name: string; clinic_id: string }
 
 export default function DashboardPage() {
   const router = useRouter()
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [reports, setReports] = useState<ReportRow[]>([])
   const [patients, setPatients] = useState<Record<string, PatientRow>>({})
-  const [patientName, setPatientName] = useState('')
-  const [uploading, setUploading] = useState(false)
-  const [progress, setProgress] = useState('')
-  const [error, setError] = useState('')
+  const [allPatients, setAllPatients] = useState<PatientRow[]>([])
+
+  const [query, setQuery] = useState('')
+  const [newName, setNewName] = useState('')
+  const [newClinicId, setNewClinicId] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   useEffect(() => {
     getUser().then((u) => {
@@ -43,41 +44,40 @@ export default function DashboardPage() {
       .order('created_at', { ascending: false })
     setReports((reportRows as ReportRow[]) ?? [])
 
-    const { data: patientRows } = await supabase.from('patients').select('id, name')
+    const { data: patientRows } = await supabase.from('patients').select('id, name, clinic_id').order('name')
+    const rows = (patientRows as PatientRow[]) ?? []
+    setAllPatients(rows)
     const map: Record<string, PatientRow> = {}
-    for (const p of (patientRows as PatientRow[]) ?? []) map[p.id] = p
+    for (const p of rows) map[p.id] = p
     setPatients(map)
   }
 
-  async function handleFile(file: File) {
-    if (!patientName.trim()) { setError('Enter the patient\'s name first.'); return }
-    setUploading(true)
-    setError('')
+  async function createPatient(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newName.trim() || !newClinicId.trim()) { setCreateError('Both name and Clinic ID are required.'); return }
+    setCreating(true)
+    setCreateError('')
     try {
-      setProgress('Reading the report…')
-      const onProgress = (p: ExtractProgress) => {
-        if (p.stage === 'ocr') setProgress(`Scanned report detected — running OCR on page ${p.page} of ${p.totalPages}…`)
-      }
-      const extracted = await extractFromFile(file, onProgress)
-
-      const form = new FormData()
-      form.append('patient_name', patientName.trim())
-      form.append('text', extracted.text)
-      form.append('file', file)
-
-      setProgress('Extracting markers…')
-      const res = await fetch('/api/parse-report', { method: 'POST', body: form })
+      const res = await fetch('/api/patients', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), clinic_id: newClinicId.trim() }),
+      })
       const j = await res.json()
-      if (!res.ok) { setError(j.error || 'Could not analyze this report.'); return }
-
-      router.push(`/report/${j.report.id}`)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Extraction failed.')
+      if (!res.ok) { setCreateError(j.error || 'Could not create patient.'); return }
+      router.push(`/patient/${j.patient.id}`)
+    } catch {
+      setCreateError('Network error, try again.')
     } finally {
-      setUploading(false)
-      setProgress('')
+      setCreating(false)
     }
   }
+
+  const searchResults = query.trim()
+    ? allPatients.filter((p) =>
+        p.name.toLowerCase().includes(query.trim().toLowerCase()) ||
+        p.clinic_id.toLowerCase().includes(query.trim().toLowerCase())
+      )
+    : []
 
   if (checkingAuth) return null
 
@@ -96,38 +96,56 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">
-        <div className="bg-card border border-border rounded-2xl p-6 mb-8">
-          <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-4">
-            Analyze a new report
-          </h2>
-          <div className="flex flex-col sm:flex-row gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-4">Find a patient</h2>
             <input
-              value={patientName}
-              onChange={(e) => setPatientName(e.target.value)}
-              placeholder="Patient name"
-              disabled={uploading}
-              className="flex-1 bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-light transition"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name or Clinic ID"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-light transition"
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="px-5 py-2.5 bg-primary hover:bg-primary-hover disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium rounded-lg text-sm transition-all whitespace-nowrap"
-            >
-              {uploading ? 'Analyzing…' : 'Upload report'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/pdf,image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-            />
+            {query.trim() && (
+              <div className="mt-3 flex flex-col gap-1.5 max-h-60 overflow-y-auto">
+                {searchResults.length === 0 ? (
+                  <p className="text-xs text-foreground-muted py-2">No matching patient.</p>
+                ) : (
+                  searchResults.map((p) => (
+                    <Link key={p.id} href={`/patient/${p.id}`}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg border border-border-light hover:border-primary transition">
+                      <span className="text-sm font-medium">{p.name}</span>
+                      <span className="text-xs text-foreground-muted">{p.clinic_id}</span>
+                    </Link>
+                  ))
+                )}
+              </div>
+            )}
           </div>
-          {uploading && progress && <p className="text-xs text-foreground-secondary mt-3">{progress}</p>}
-          {error && <p className="text-xs text-danger mt-3">{error}</p>}
-          <p className="text-xs text-foreground-muted mt-3">
-            Any lab, any layout — PDF or a photo/screenshot, up to 15MB. Scanned PDFs are OCR&apos;d automatically in your browser, so a long multi-page report can take a minute or two — keep this tab open while it runs.
-          </p>
+
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-4">New patient</h2>
+            <form onSubmit={createPatient} className="flex flex-col gap-3">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Patient name"
+                disabled={creating}
+                className="bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-light transition"
+              />
+              <input
+                value={newClinicId}
+                onChange={(e) => setNewClinicId(e.target.value)}
+                placeholder="Clinic ID"
+                disabled={creating}
+                className="bg-background border border-border rounded-lg px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary-light transition"
+              />
+              {createError && <p className="text-xs text-danger">{createError}</p>}
+              <button type="submit" disabled={creating}
+                className="px-5 py-2.5 bg-primary hover:bg-primary-hover disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium rounded-lg text-sm transition-all">
+                {creating ? 'Creating…' : 'Create patient account'}
+              </button>
+            </form>
+          </div>
         </div>
 
         <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-3">Recent reports</h2>
