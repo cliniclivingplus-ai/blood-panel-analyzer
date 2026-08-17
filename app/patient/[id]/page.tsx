@@ -82,7 +82,8 @@ export default function PatientPage({ params }: { params: Promise<{ id: string }
       body: JSON.stringify({ regenerate }),
     })
       .then((r) => r.json())
-      .then((j) => { if (j.summary) setSummary(j.summary) })
+      .then((j) => setSummary(j.summary || j.error || 'Could not load a summary — try again.'))
+      .catch(() => setSummary('Could not load a summary — try again.'))
       .finally(() => setLoadingSummary(false))
   }
 
