@@ -22,6 +22,7 @@ async function writeRationale(marker: ExtractedMarker, row: MarkerGuidanceRow): 
       model: 'openai/gpt-oss-20b',
       max_tokens: 160,
       temperature: 0.25,
+      reasoning_effort: 'low',
       messages: [
         {
           role: 'system',
