@@ -14,8 +14,15 @@ const nextConfig: NextConfig = {
   // the whole package trees (tesseract.js's worker script + the
   // WASM/core engine it loads) so the worker thread can actually resolve
   // its own dependencies at runtime.
+  // tesseract.js's worker thread pulls in enough of its own transitive
+  // deps (bmp-js, node-fetch -> whatwg-url -> tr46/webidl-conversions,
+  // idb-keyval, wasm-feature-detect, zlibjs, ...) that listing them one by
+  // one was a losing game of whack-a-mole — each fix revealed the next
+  // missing module. Including the whole node_modules tree for this one
+  // route is blunt but reliable, and this project is small enough that
+  // the extra function size isn't a real concern.
   outputFileTracingIncludes: {
-    '/api/parse-report': ['./node_modules/tesseract.js/**/*', './node_modules/tesseract.js-core/**/*'],
+    '/api/parse-report': ['./node_modules/**/*'],
   },
 };
 
