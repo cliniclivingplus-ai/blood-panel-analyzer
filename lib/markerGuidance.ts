@@ -30,10 +30,17 @@ export type MarkerGuidanceRow = {
 //    before ever reaching the more specific "HbA2" row — a clinically
 //    wrong match, since low HbA2 and low Hemoglobin are different
 //    findings with different guidance.
-// 2. Only if no exact parenthetical match exists, fall back to substring
-//    containment against the full test name (handles cases with no
-//    parenthetical, e.g. OCR/text extraction fusing a panel header onto
-//    the row name — "Zinc , SERUM Zinc, Serum").
+// 2. Only if there was NO parenthetical at all, fall back to substring
+//    containment against the full test name (handles cases like OCR/text
+//    extraction fusing a panel header onto the row name — "Zinc , SERUM
+//    Zinc, Serum"). If a parenthetical WAS present but matched nothing
+//    (e.g. "Hemoglobin A (HbA)" — "HbA" isn't a seeded marker), that's a
+//    strong signal this is a genuinely different, unseeded test, not a
+//    naming variant of a seeded one — falling back to a loose substring
+//    match here previously attached the generic Hemoglobin/anemia
+//    guidance to a hemoglobin *fraction* percentage, producing a
+//    clinically misleading rationale for a marker the table doesn't
+//    actually cover.
 export function findGuidanceMatch(testName: string, rows: MarkerGuidanceRow[]): MarkerGuidanceRow | null {
   const target = normalizeMarkerName(testName)
   if (!target) return null
@@ -47,6 +54,7 @@ export function findGuidanceMatch(testName: string, rows: MarkerGuidanceRow[]): 
         if (candidates.some((c) => normalizeMarkerName(c) === abbrev)) return row
       }
     }
+    return null
   }
 
   for (const row of rows) {
