@@ -3,6 +3,35 @@
 import { useEffect, useState, use } from 'react'
 import Link from 'next/link'
 import type { ExtractedMarker, MarkerRecommendation } from '@/lib/types'
+import { computeRangeViz } from '@/lib/rangeViz'
+
+// A simple horizontal range bar — the reference range as a shaded zone,
+// the patient's value as a dot along it. No charting library: just two
+// absolutely-positioned divs over a track. Renders nothing if the result
+// or range can't be read as plain numbers (text results, missing range,
+// a garbled OCR read), rather than guessing at a misleading bar.
+function RangeBar({ marker }: { marker: ExtractedMarker }) {
+  const viz = computeRangeViz(marker.result, marker.ref_range)
+  if (!viz) return null
+  return (
+    <div className="w-36">
+      <div className="relative h-2 rounded-full bg-border-light">
+        <div
+          className="absolute inset-y-0 rounded-full bg-secondary-light"
+          style={{ left: `${viz.lowPct}%`, width: `${Math.max(0, viz.highPct - viz.lowPct)}%` }}
+        />
+        <div
+          className={`absolute top-1/2 w-2.5 h-2.5 rounded-full border-2 border-card -translate-y-1/2 -translate-x-1/2 ${viz.inRange ? 'bg-success' : 'bg-danger'}`}
+          style={{ left: `${viz.valuePct}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-foreground-muted mt-1 leading-none">
+        <span>{viz.min}</span>
+        <span>{viz.max}</span>
+      </div>
+    </div>
+  )
+}
 
 type ReportData = {
   id: string
@@ -82,10 +111,19 @@ export default function ReportPage({ params }: { params: Promise<{ id: string }>
           {report.pdf_filename} · {new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
         </p>
 
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="bg-card border border-border rounded-2xl px-5 py-4">
+            <div className="text-2xl font-semibold">{markers.length}</div>
+            <div className="text-xs text-foreground-muted mt-1">Tests analyzed</div>
+          </div>
+          <div className="bg-card border border-border rounded-2xl px-5 py-4">
+            <div className={`text-2xl font-semibold ${abnormalMarkers.length > 0 ? 'text-danger' : 'text-success'}`}>{abnormalMarkers.length}</div>
+            <div className="text-xs text-foreground-muted mt-1">Out of range</div>
+          </div>
+        </div>
+
         <section className="mb-10">
-          <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-3">
-            Findings ({markers.length} test{markers.length === 1 ? '' : 's'}, {abnormalMarkers.length} out of range)
-          </h2>
+          <h2 className="text-sm font-mono uppercase tracking-widest text-foreground-muted mb-3">Findings</h2>
           <div className="bg-card border border-border rounded-2xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
@@ -93,16 +131,18 @@ export default function ReportPage({ params }: { params: Promise<{ id: string }>
                   <th className="px-4 py-3">Test</th>
                   <th className="px-4 py-3">Result</th>
                   <th className="px-4 py-3">Reference range</th>
+                  <th className="px-4 py-3">Where it falls</th>
                 </tr>
               </thead>
               <tbody>
                 {markers.map((m, i) => (
                   <tr key={i} className={`border-b border-border-light last:border-0 ${m.abnormal ? 'bg-primary-light/40' : ''}`}>
                     <td className="px-4 py-3 font-medium">{m.test_name}</td>
-                    <td className={`px-4 py-3 ${m.abnormal ? 'text-danger font-semibold' : ''}`}>
+                    <td className={`px-4 py-3 whitespace-nowrap ${m.abnormal ? 'text-danger font-semibold' : ''}`}>
                       {m.result} {m.unit} {m.flag && <span className="ml-1 text-xs">({m.flag})</span>}
                     </td>
-                    <td className="px-4 py-3 text-foreground-secondary">{m.ref_range || '—'}</td>
+                    <td className="px-4 py-3 text-foreground-secondary whitespace-nowrap">{m.ref_range || '—'}</td>
+                    <td className="px-4 py-3"><RangeBar marker={m} /></td>
                   </tr>
                 ))}
               </tbody>

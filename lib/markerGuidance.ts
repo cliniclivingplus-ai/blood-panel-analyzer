@@ -57,11 +57,17 @@ export function findGuidanceMatch(testName: string, rows: MarkerGuidanceRow[]): 
     return null
   }
 
+  // Minimum 4 chars for the loose fallback — short synonyms like "Hb" (2
+  // chars) or "Zn" are exact-safe (used above) but not substring-safe:
+  // "Hb" is a substring of "HbA1c/Total" too (it's the shared prefix of
+  // every hemoglobin-fraction test name — HbA, HbA1c, HbF, HbS...), which
+  // wrongly matched a fasting-glucose-adjacent glycated-hemoglobin test
+  // against the generic Hemoglobin/anemia row.
   for (const row of rows) {
     const candidates = [row.marker_name, ...row.synonyms]
     if (candidates.some((c) => {
       const norm = normalizeMarkerName(c)
-      return norm.length >= 2 && (target.includes(norm) || norm.includes(target))
+      return norm.length >= 4 && (target.includes(norm) || norm.includes(target))
     })) return row
   }
   return null
