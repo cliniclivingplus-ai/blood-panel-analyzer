@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { signOut, getUser } from '@/lib/auth'
-import { extractFromFile } from '@/lib/extractReport'
+import { extractFromFile, type ExtractProgress } from '@/lib/extractReport'
 
 type ReportRow = {
   id: string
@@ -55,17 +55,14 @@ export default function DashboardPage() {
     setError('')
     try {
       setProgress('Reading the report…')
-      const extracted = await extractFromFile(file)
+      const onProgress = (p: ExtractProgress) => {
+        if (p.stage === 'ocr') setProgress(`Scanned report detected — running OCR on page ${p.page} of ${p.totalPages}…`)
+      }
+      const extracted = await extractFromFile(file, onProgress)
 
       const form = new FormData()
       form.append('patient_name', patientName.trim())
-      form.append('mode', extracted.mode)
-      if (extracted.mode === 'text') {
-        form.append('text', extracted.text)
-      } else {
-        setProgress(`Scanned report detected — running OCR on ${extracted.pageImages.length} page(s)…`)
-        extracted.pageImages.forEach((blob, i) => form.append('page_images', blob, `page-${i}.png`))
-      }
+      form.append('text', extracted.text)
       form.append('file', file)
 
       setProgress('Extracting markers…')
@@ -129,7 +126,7 @@ export default function DashboardPage() {
           {uploading && progress && <p className="text-xs text-foreground-secondary mt-3">{progress}</p>}
           {error && <p className="text-xs text-danger mt-3">{error}</p>}
           <p className="text-xs text-foreground-muted mt-3">
-            Any lab, any layout — PDF or a photo/screenshot, up to 15MB. Scanned PDFs are OCR&apos;d automatically.
+            Any lab, any layout — PDF or a photo/screenshot, up to 15MB. Scanned PDFs are OCR&apos;d automatically in your browser, so a long multi-page report can take a minute or two — keep this tab open while it runs.
           </p>
         </div>
 

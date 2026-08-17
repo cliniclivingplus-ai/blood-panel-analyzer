@@ -5,44 +5,31 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 import { createSupabaseAdmin } from '@/lib/supabaseServer'
-import { ocrPages } from '@/lib/ocr'
 import { extractMarkers } from '@/lib/extractMarkers'
 
+// Extraction (including OCR for scanned reports) happens entirely in the
+// browser now — see lib/extractReport.ts. This route only ever receives
+// the already-extracted text, never page images: a real multi-page scan
+// rendered to OCR-quality images is tens of MB, well past Vercel's 4.5MB
+// serverless request-body limit, which is exactly what broke on some of
+// the coach's own real 28-43 page sample reports.
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData()
     const patientName = form.get('patient_name')
-    const mode = form.get('mode')
+    const text = form.get('text')
     const file = form.get('file')
 
     if (typeof patientName !== 'string' || !patientName.trim()) {
       return NextResponse.json({ error: 'Patient name is required' }, { status: 400 })
     }
-    if (mode !== 'text' && mode !== 'ocr') {
-      return NextResponse.json({ error: 'Invalid extraction mode' }, { status: 400 })
+    if (typeof text !== 'string' || !text.trim()) {
+      return NextResponse.json({ error: 'No text extracted from this report' }, { status: 400 })
     }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
-
-    let rawText = ''
-    if (mode === 'text') {
-      const text = form.get('text')
-      if (typeof text !== 'string' || !text.trim()) {
-        return NextResponse.json({ error: 'No text extracted from this PDF' }, { status: 400 })
-      }
-      rawText = text
-    } else {
-      const pageImages = form.getAll('page_images').filter((f): f is File => f instanceof File)
-      if (pageImages.length === 0) {
-        return NextResponse.json({ error: 'No page images to OCR' }, { status: 400 })
-      }
-      const buffers = await Promise.all(pageImages.map((f) => f.arrayBuffer()))
-      rawText = await ocrPages(buffers)
-      if (rawText.trim().length < 20) {
-        return NextResponse.json({ error: 'Could not read this scan — try a clearer photo or a higher-resolution PDF.' }, { status: 422 })
-      }
-    }
+    const rawText = text
 
     const admin = createSupabaseAdmin()
 
